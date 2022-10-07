@@ -18,7 +18,7 @@
 --
 --------------------------------------------------------------------------------
 
-module Data.Comp.MacroAutomata
+module Data.Comp.Multi.MacroAutomata
     (
      -- * Macro Tree Transducers
       MacroTrans
@@ -47,34 +47,34 @@ module Data.Comp.MacroAutomata
     )
     where
 
-import Data.Comp.Algebra
-import Data.Comp.Annotation
-import Data.Comp.Automata
-import Data.Comp.Multi.HFunctor (I (..))
-import Data.Comp.Term
+import Data.Comp.Multi.Algebra
+import Data.Comp.Multi.Annotation
+import Data.Comp.Multi.Automata
+import Data.Comp.Multi.HFunctor
+import Data.Comp.Multi.Term
 
 -- | This type represents total deterministic macro tree transducers
 -- (MTTs).
 
-type MacroTrans f q g = forall a. q a -> f (q (Context g a) -> a) -> Context g a
+type MacroTrans f q g = forall a i . q a i -> f (q (Context g a) i -> a i) -> Context g a i
 
 -- | This is a variant of the type 'MacroTrans' that makes it easier
 -- to define MTTs as it avoids the explicit use of 'Hole' when using
 -- placeholders in the result.
 
-type MacroTrans' f q g = forall a . q (Context g a) -> f (q (Context g a) -> Context g a)
-                       -> Context g a
+type MacroTrans' f q g = forall a i . q (Context g a) i -> f (q (Context g a) i -> Context g a i)
+                       -> Context g a i
 
 -- | This function turns an MTT defined using the more convenient type
 -- 'MacroTrans'' into its canonical form of type 'MacroTrans'.
 
-mkMacroTrans :: (Functor f, Functor q) => MacroTrans' f q g -> MacroTrans f q g
+mkMacroTrans :: (HFunctor f, HFunctor q) => MacroTrans' f q g -> MacroTrans f q g
 mkMacroTrans tr q t = tr (fmap Hole q) (fmap (Hole .) t)
 
 -- | This function defines the semantics of MTTs. It applies a given
 -- MTT to an input with and an initial state.
 
-runMacroTrans :: (Functor g, Functor f, Functor q) =>
+runMacroTrans :: (HFunctor g, HFunctor f, HFunctor q) =>
                  MacroTrans f q g -> q (Cxt h g a) -> Cxt h f a -> Cxt h g a
 runMacroTrans tr q t = run t q where
     run (Term t) q = appCxt (tr q (fmap run' t))
@@ -86,7 +86,7 @@ runMacroTrans tr q t = run t q where
 -- define composition. Restricted to 'Term's, both functions coincide.
 
 runMacroTrans' :: forall g f q h a.
-                  (Functor g, Functor f, Functor q) => MacroTrans f q g -> q (Cxt h g a)
+                  (HFunctor g, HFunctor f, HFunctor q) => MacroTrans f q g -> q (Cxt h g a)
                -> Cxt h f (q (Cxt h g a) -> a) -> Cxt h g a
 runMacroTrans' tr q t = run t q where
     run :: Cxt h f (q (Cxt h g a) -> a) -> q (Cxt h g a) -> Cxt h g a
@@ -101,7 +101,7 @@ runMacroTrans' tr q t = run t q where
 -- MTT's semantics is equivalent to the function composition of the
 -- semantics of the original MTT and DTT.
 
-compMacroDown :: (Functor f, Functor g, Functor h, Functor p)
+compMacroDown :: (HFunctor f, HFunctor g, HFunctor h, HFunctor p)
               => MacroTrans g p h -> DownTrans f q g -> MacroTrans f (p :&: q) h
 compMacroDown t2 t1 (p :&: q) t = runMacroTrans' t2 (fmap Hole p) (t1 q (fmap curryF t))
     where curryF :: ((p :&: q) a -> b) -> q -> p a -> b
@@ -110,7 +110,7 @@ compMacroDown t2 t1 (p :&: q) t = runMacroTrans' t2 (fmap Hole p) (t1 q (fmap cu
 -- | This function is a variant of 'runDownTrans' that is used to
 -- define composition, similarly to the function 'runMacroTrans''.
 
-runDownTrans' :: (Functor f, Functor g) => DownTrans f q g -> q -> Cxt h f (q -> a) -> Cxt h g a
+runDownTrans' :: (HFunctor f, HFunctor g) => DownTrans f q g -> q -> Cxt h f (q -> a) -> Cxt h g a
 runDownTrans' tr q (Term t) = appCxt $ tr q $ fmap (\s q -> runDownTrans' tr q s) t
 runDownTrans' _ q (Hole a) = Hole (a q)
 
@@ -119,14 +119,14 @@ runDownTrans' _ q (Hole a) = Hole (a q)
 
 data (q :^: p) a = q (p -> a) :^: p
 
-instance Functor q => Functor (q :^: p) where
+instance HFunctor q => HFunctor (q :^: p) where
     fmap f (q :^: p) = fmap (f .) q :^: p
 
 -- | This function composes an MTT followed by a DTT. The resulting
 -- MTT's semantics is equivalent to first running the original MTT and
 -- then the DTT.
 
-compDownMacro :: forall f g h q p . (Functor f, Functor g, Functor h, Functor q)
+compDownMacro :: forall f g h q p . (HFunctor f, HFunctor g, HFunctor h, HFunctor q)
               => DownTrans g p h -> MacroTrans f q g -> MacroTrans f (q :^: p) h
 compDownMacro t2 t1 (q :^: p) t = runDownTrans' t2 p (t1 (fmap (\a p' -> a p') q) (fmap reshape t))
     where reshape :: ((q :^: p) (Context h a) -> a) -> (q (Context g (p -> a)) -> p -> a)
@@ -135,7 +135,7 @@ compDownMacro t2 t1 (q :^: p) t = runDownTrans' t2 p (t1 (fmap (\a p' -> a p') q
 
 -- | This type is an instantiation of the 'MacroTrans' type to a state
 -- space with only a single state with a single accumulation parameter
--- (i.e. the state space is the identity functor).
+-- (i.e. the state space is the identity HFunctor).
 
 type MacroTransId  f g = forall a. a           -> f (Context g a -> a)           -> Context g a
 
@@ -148,14 +148,14 @@ type MacroTransId' f g = forall a. Context g a -> f (Context g a -> Context g a)
 -- | This function transforms an MTT of type |MacroTransId| into the
 -- canonical type such that it can be run.
 
-fromMacroTransId :: Functor f => MacroTransId f g -> MacroTrans f I g
+fromMacroTransId :: HFunctor f => MacroTransId f g -> MacroTrans f I g
 fromMacroTransId tr (I a) t = tr a (fmap (. I) t)
 
 
 -- | This function transforms an MTT of type |MacroTransId'| into the
 -- canonical type such that it can be run.
 
-fromMacroTransId' :: Functor f => MacroTransId' f g -> MacroTrans f I g
+fromMacroTransId' :: HFunctor f => MacroTransId' f g -> MacroTrans f I g
 fromMacroTransId' tr (I a) t = tr (Hole a) (fmap (\f -> Hole . f . I) t)
 
 -- | This type represents MTTs with regular look-ahead, i.e. MTTs that
@@ -173,7 +173,7 @@ type MacroTransLA' f q p g = forall a. q (Context g a) -> p ->
 -- | This function turns an MTT with regular look-ahead defined using
 -- the more convenient type |MacroTransLA'| into its canonical form of
 -- type |MacroTransLA|.
-mkMacroTransLA :: (Functor q, Functor f) => MacroTransLA' f q p g -> MacroTransLA f q p g
+mkMacroTransLA :: (HFunctor q, HFunctor f) => MacroTransLA' f q p g -> MacroTransLA f q p g
 mkMacroTransLA tr q p t = tr (fmap Hole q) p (fmap (\ (f, p) -> (Hole . f,p)) t)
 
 
@@ -181,7 +181,7 @@ mkMacroTransLA tr q p t = tr (fmap Hole q) p (fmap (\ (f, p) -> (Hole . f,p)) t)
 -- look-ahead. It applies a given MTT with regular look-ahead
 -- (including an accompanying bottom-up state transition function) to
 -- an input with and an initial state.
-runMacroTransLA :: forall g f q p. (Functor g, Functor f, Functor q) =>
+runMacroTransLA :: forall g f q p. (HFunctor g, HFunctor f, HFunctor q) =>
                    UpState f p -> MacroTransLA f q p g -> q (Term g) -> Term f -> Term g
 runMacroTransLA st tr q t = fst (run t) q where
     run :: Term f -> (q (Term g) -> Term g, p)
@@ -195,7 +195,7 @@ runMacroTransLA st tr q t = fst (run t) q where
 -- | This function composes an MTT with regular look-ahead followed by
 -- a DTT.
 
-compDownMacroLA :: forall f g h q1 q2 p . (Functor f, Functor g, Functor h, Functor q1) =>
+compDownMacroLA :: forall f g h q1 q2 p . (HFunctor f, HFunctor g, HFunctor h, HFunctor q1) =>
                  DownTrans g q2 h -> MacroTransLA f q1 p g -> MacroTransLA f (q1 :^: q2) p h
 compDownMacroLA t2 t1 (q1 :^: q2) p t = runDownTrans' t2 q2 (t1 (fmap (\a q2' -> a q2') q1) p (fmap reshape t))
     where reshape :: ((q1 :^: q2) (Context h a) -> a,p) -> (q1 (Context g (q2 -> a)) -> q2 -> a,p)
@@ -205,16 +205,16 @@ compDownMacroLA t2 t1 (q1 :^: q2) p t = runDownTrans' t2 q2 (t1 (fmap (\a q2' ->
 -- | Lift a macro tree transducer over signatures @f@ and @g@ to a
 -- macro tree transducer over the same signatures, but extended
 -- with annotations.
-propAnnMacro :: (Functor f, Functor q, DistAnn f p f', DistAnn g p g', Functor g)
+propAnnMacro :: (HFunctor f, HFunctor q, DistAnn f p f', DistAnn g p g', HFunctor g)
         => MacroTrans f q g -> MacroTrans f' q g'
 propAnnMacro trans q f' = ann p (trans q (fmap ann' f))
-    where (f,p) = projectA f'
+    where (f :&: p) = projectA f'
           ann' s q' = s (fmap (ann p) q')
 
 -- | Lift a macro tree transducer with regular look-ahead over
 -- signatures @f@ and @g@ to a macro tree transducer with regular
 -- look-ahead over the same signatures, but extended with annotations.
-propAnnMacroLA :: (Functor f, Functor q, DistAnn f p f', DistAnn g p g', Functor g)
+propAnnMacroLA :: (HFunctor f, HFunctor q, DistAnn f p f', DistAnn g p g', HFunctor g)
                 => MacroTransLA f q p g -> MacroTransLA f' q p g'
 propAnnMacroLA trans q p f' = ann an (trans q p (fmap ann' f))
     where (f,an) = projectA f'
