@@ -25,8 +25,6 @@ source-repository head
 library
   exposed-modules:
       Data.Comp.Multi.Automata
-      Data.Comp.Multi.DMapping
-      Data.Comp.Multi.MacroAutomata
   other-modules:
       Paths_compdata_automata
   hs-source-dirs:
