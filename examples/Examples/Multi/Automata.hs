@@ -14,7 +14,7 @@
 
 module Examples.Automata where
 
-import Data.Comp
+import Data.Comp.Multi
 import Data.Maybe
 import Data.Traversable
 import Control.Monad
@@ -86,7 +86,7 @@ type DUTTTrans f g q = forall a. f (q,a) -> (q, Cxt Hole g a)
 algebra.  -}
 
 duttTransAlg :: (Functor f, Functor g)  => DUTTTrans f g q -> Alg f (q, Term g)
-duttTransAlg trans = fmap injectCxt . trans 
+duttTransAlg trans = fmap injectCxt . trans
 
 {-| This function runs the given DUTT transition function on the given
 term.  -}
@@ -121,7 +121,7 @@ type NUTTTrans f g q = forall a. f (q,a) -> [(q, Cxt Hole g a)]
 algebra.  -}
 
 nuttTransAlg :: (Functor f, Functor g)  => NUTTTrans f g q -> AlgM [] f (q, Term g)
-nuttTransAlg trans = liftM (fmap injectCxt) . trans 
+nuttTransAlg trans = liftM (fmap injectCxt) . trans
 
 {-| This function runs the given NUTT transition function on the given
 term.  -}

@@ -4,12 +4,12 @@ ScopedTypeVariables, TypeSynonymInstances, GeneralizedNewtypeDeriving,
 OverlappingInstances, ConstraintKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 
-module Examples.Automata.Compiler where
+module Examples.Multi.Automata.Compiler where
 
-import Data.Comp.Automata
-import Data.Comp.Derive
-import Data.Comp.Ops
-import Data.Comp hiding (height)
+import Data.Comp.Multi.Automata
+import Data.Comp.Multi.Derive
+import Data.Comp.Multi.Ops
+import Data.Comp.Multi hiding (height)
 import Data.Foldable
 import Prelude hiding (foldl)
 
@@ -71,7 +71,7 @@ data MState = MState {
 
 runCode :: Code -> MState -> MState
 runCode [] = id
-runCode (ins:c) = runCode c . step ins 
+runCode (ins:c) = runCode c . step ins
     where step (Acc i) s = s{mAcc = i}
           step (Load a) s = case Map.lookup a (mRam s) of
               Nothing -> error $ "memory cell " ++ show a ++ " is not set"
@@ -101,7 +101,7 @@ newtype VarAddr = VarAddr {varAddr :: Int} deriving (Eq, Show, Num)
 
 class VarAddrSt f where
   varAddrSt :: DownState f VarAddr
-  
+
 instance (VarAddrSt f, VarAddrSt g) => VarAddrSt (f :+: g) where
     varAddrSt (q,Inl x) = varAddrSt (q, x)
     varAddrSt (q,Inr x) = varAddrSt (q, x)
@@ -109,7 +109,7 @@ instance (VarAddrSt f, VarAddrSt g) => VarAddrSt (f :+: g) where
 instance VarAddrSt Let where
   varAddrSt (d, Let _ _ x) = x `Map.singleton` (d + 2)
   varAddrSt _ = Map.empty
-  
+
 instance VarAddrSt f where
   varAddrSt _ = Map.empty
 
@@ -130,7 +130,7 @@ class CodeSt f q where
 instance (CodeSt f q, CodeSt g q) => CodeSt (f :+: g) q where
     codeSt (Inl x) = codeSt x
     codeSt (Inr x) = codeSt x
-  
+
 
 instance CodeSt Val q where
     codeSt (Const i) = [Acc i]
@@ -158,11 +158,11 @@ exComp' = compile' (iConst 2 `iPlus` iConst 3 :: Term Core)
 
 compile :: (CodeSt f ((Code,Int),(Bind,VarAddr)), Traversable f, Functor f, Let :<: f, VarAddrSt f)
            => Term f -> Code
-compile = fst . runDState 
+compile = fst . runDState
           (codeSt `prodDUpState` dUpState tmpAddrSt)
           (bindSt `prodDDownState` dDownState varAddrSt)
           (Map.empty, VarAddr 1)
-          
+
 
 exComp = compile (iLet "x" (iLet "x" (iConst 5) (iConst 10 `iPlus` iVar "x")) (iConst 2 `iPlus` iVar "x") :: Term CoreLet)
 
@@ -186,7 +186,7 @@ instance VarsSt Let where
 -- | Stateful homomorphism that removes unnecessary let bindings.
 remLetHom :: (Set Var :< q, Let :<: f, Functor f) => QHom f q f
 remLetHom t = case proj t of
-                Just (Let v _ y) 
+                Just (Let v _ y)
                     | not (v `member` below y) -> Hole y
                 _ -> simpCxt t
 

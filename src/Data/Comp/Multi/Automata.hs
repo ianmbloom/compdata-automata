@@ -118,7 +118,6 @@ import Data.Comp.Multi.HTraversable
 import Data.Comp.Multi.Algebra
 import Data.Comp.Multi.Annotation
 import Data.Projection
-import Data.Projection.Multi ((:*:)(..), hfst, hsnd, (:<<)(..))
 import Data.Comp.Multi.Mapping
 import Data.Comp.Multi.Term
 -- import qualified Data.Comp.Multi.DMapping as D
@@ -126,9 +125,12 @@ import qualified Data.Comp.Ops as O
 
 -- Higher order product special cases.
 
-type a ^: b = K a :*:   b
-type a :^ b =   a :*: K b
-type a ^^ b = K a :*: K b
+data (q :*: c) i = q i :*: c i
+
+hfst :: (a :*: b) i -> a i
+hfst (a  :*: _b) = a
+hsnd :: (a :*: b) i -> b i
+hsnd (_a :*:  b) = b
 
 -- | This function provides access to components of the states from
 -- "below".
@@ -145,8 +147,8 @@ above = pr ?above
 -- | Turns the explicit parameters @?above@ and @?below@ into explicit
 -- ones.
 
-explicit :: forall b q a i . ((?above :: q, ?below :: a i -> q) => b i) -> q -> (a i -> q) -> b i
-explicit x ab be = x where ?above = ab; ?below = be
+-- explicit :: forall b q a i . ((?above :: q, ?below :: a i -> q) => b i) -> q -> (a i -> q) -> b i
+-- explicit x ab be = x where ?above = ab; ?below = be
 
 -- | This type represents stateful term homomorphisms. Stateful term
 -- homomorphisms have access to a state that is provided (separately)
@@ -374,9 +376,6 @@ runDownTrans' tr q t = run t (K q) where
 
 -- | This function composes two DTTs. (see W.C. Rounds /Mappings and
 -- grammars on trees/, Theorem 2.)
-
--- hcurry :: ((q :*: p) :->: a) i -> (q :->: (p :->: a)) i
--- hcurry (HFun f) = HFun $ \ q -> HFun $ \ p -> f (q :*: p)
 
 hcurry :: (K (q, p) :->: a) i -> (K q :->: (K p :->: a)) i
 hcurry (HFun f) = HFun $ \ (K q) -> HFun $ \ (K p) -> f $ K (q,p)
