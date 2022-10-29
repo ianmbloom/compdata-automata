@@ -147,14 +147,18 @@ above = pr ?above
 -- explicit :: forall b q a i . ((?above :: q, ?below :: a i -> q) => b i) -> q -> (a i -> q) -> b i
 -- explicit x ab be = x where ?above = ab; ?below = be
 
+hexplicit :: ((?above::q, ?below :: a i -> q) => (f a i -> k i))
+          -> q
+          -> (a i -> q)
+          -> f a i
+          -> k i
+hexplicit x ab be = x where ?above = ab; ?below = be
+
 -- | This type represents stateful term homomorphisms. Stateful term
 -- homomorphisms have access to a state that is provided (separately)
 -- by a bottom-up or top-down state transformation function (or both).
 
 type QHom f q g = forall a i . (?below :: a i -> q, ?above :: q) => f a i -> Context g a i
-
-qHomExplicit :: forall f g q a i . ((?above :: q, ?below :: a i -> q) => (f a i -> Context g a i)) -> q -> (a i -> q) -> f a i -> Context g a i
-qHomExplicit x ab be = x where ?above = ab; ?below = be
 
 -- | This function turns a stateful homomorphism with a fully
 -- polymorphic state type into a (stateless) homomorphism.
@@ -278,7 +282,7 @@ prodUpState sp sq t = K (p, q) where
 upTrans :: forall f q g . (HFunctor f, HFunctor g) => UpState f q -> QHom f q g -> UpTrans f q g
 upTrans st f t = (K q :*: c)
     where K q = st $ hfmap ffst t
-          c = hfmap fsnd $ qHomExplicit f q (unK . ffst) t
+          c = hfmap fsnd $ hexplicit f q (unK . ffst) t
 
 -- | This function applies a given stateful term homomorphism with
 -- a state space propagated by the given UTA to a term.
@@ -302,18 +306,14 @@ type DUpState' f p q = forall a i . (?below :: a i -> p, ?above :: p) => f a i -
 
 -- | This combinator turns an arbitrary UTA into a GUTA.
 
-
 dUpState :: forall f p q . HFunctor f => UpState f q -> DUpState f p q
-dUpState f = error "dUpState not defined" -- f . hfmap below
+dUpState f sig = f $ hfmap (error "dUpState not implemented." {-below -}) sig
 
 -- | This combinator turns a GUTA with the smallest possible state
 -- space into a UTA.
 
-dUpExplicit :: forall f q a i . ((?above::q, ?below::a i -> q) => (f a i -> K q i)) -> q -> (a i -> q) -> f a i -> K q i
-dUpExplicit x ab be = x where ?above = ab; ?below = be
-
 upState :: forall f q . DUpState f q q -> UpState f q
-upState f s = K res where res = unK $ dUpExplicit f res unK s
+upState f s = K res where res = unK $ hexplicit f res unK s
 
 -- | This combinator runs a GUTA on a term.
 
@@ -449,7 +449,7 @@ mcurry :: forall q f (a :: Type -> Type) m i . ((K q :*: f a) i -> K (m q) i) ->
 mcurry f q t = f (K q :*: t)
 
 downTrans :: (HTraversable f, HFunctor g) => DownState f q -> QHom f q g -> DownTrans f q g
-downTrans st f q s = hfmap fsnd $ qHomExplicit f q (unK . ffst) (appMap (mcurry st q) q s)
+downTrans st f q s = hfmap fsnd $ hexplicit f q (unK . ffst) (appMap (mcurry st q) q s)
 
 
 -- | This function applies a given stateful term homomorphism with a
@@ -476,12 +476,9 @@ dDownState f t = f (K above :*: t)
 -- | This combinator turns a GDTA with the smallest possible state
 -- space into a DTA.
 
-mExplicit ::  forall f q a m i . ((?above :: q, ?below :: a i -> q) => (f a i -> K (m q) i)) -> q -> (a i -> q) -> f a i -> K (m q) i
-mExplicit x ab be = x where ?above = ab; ?below = be
-
 downState :: DDownState f q q -> DownState f q
 downState f (K q :*: s) = K res
-    where (K res) = mExplicit f q bel s
+    where (K res) = hexplicit f q bel s
           bel k = findWithDefault q k res
 
 
@@ -516,27 +513,12 @@ runDState up down d (Term t) = u where
             let d' :: d
                 d' = lookupNumMap d i m
             in Numbered i (K (runDState up down d' s, d'))
-        m = unK $ hExplicit down (u, d) (unK . unNumbered) t'
-        u = unK $ hExplicit up   (u, d) (unK . unNumbered) t'
+        m = unK $ hexplicit down (u, d) (unK . unNumbered) t'
+        u = unK $ hexplicit up   (u, d) (unK . unNumbered) t'
 
 -- | This combinator runs a stateful term homomorphisms with a state
 -- space produced both on a bottom-up and a top-down state
 -- transformation.
-
-hExplicit :: ((?above::q, ?below :: a i -> q) => (f a i -> k i))
-          -> q
-          -> (a i -> q)
-          -> f a i
-          -> k i
-hExplicit x ab be = x where ?above = ab; ?below = be
-
-cxtExplicit :: ((?above :: q, ?below :: a i -> q) => (f z i -> Context g z i))
-           -> q
-           -> (a i -> q)
-           -> f z i
-           -> Context g z i
-cxtExplicit x ab be = x where ?above = ab; ?below = be
-
 
 runQHom :: forall f g u d i . (HTraversable f, HFunctor g) =>
            DUpState' f (u,d) u -> DDownState' f (u, d) d ->
@@ -549,9 +531,9 @@ runQHom up down trans d (Term t) = (u, t'') where
             let d' = lookupNumMap d i (unK m)
                 (u', s') = runQHom up down trans d' s
             in Numbered i (K (u', d') :*: s')
-        m = hExplicit down (u,d) (unK . ffst . unNumbered) t'
-        u = unK $ hExplicit   up   (u,d) (unK . ffst . unNumbered) t'
-        t'' = appCxt $ hfmap (fsnd . unNumbered) $ cxtExplicit trans (u,d) (unK . ffst . unNumbered) t'
+        m = hexplicit down (u,d) (unK . ffst . unNumbered) t'
+        u = unK $ hexplicit   up   (u,d) (unK . ffst . unNumbered) t'
+        t'' = appCxt $ hfmap (fsnd . unNumbered) $ hexplicit trans (u,d) (unK . ffst . unNumbered) t'
 
 -- | Lift a stateful term homomorphism over signatures @f@ and @g@ to
 -- a stateful term homomorphism over the same signatures, but extended with

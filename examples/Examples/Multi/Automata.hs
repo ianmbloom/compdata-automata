@@ -76,11 +76,11 @@ nuta NUTA{nutaTrans = trans, nutaAccept = accept} = any accept . runNUTATrans tr
 -- algM f x = sequence x >>= f
 --
 
-inK :: (HTraversable f, Monad m) => f (K (m q)) i -> m (f (K q) i)
-inK x = htraverse (fmap K . unK) x
+sequenceK :: (HTraversable f, Monad m) => f (K (m q)) i -> m (f (K q) i)
+sequenceK x = htraverse (fmap K . unK) x
 
 algM :: (HTraversable f, Monad m) => (f (K q) i -> m (K q i)) -> f (K (m q)) i -> K (m q) i
-algM f x = K . fmap unK $ inK x >>= f
+algM f x = K . fmap unK $ sequenceK x >>= f
 
 determNUTA :: (HTraversable f) => NUTA f q -> DUTA f [q]
 determNUTA n = DUTA
