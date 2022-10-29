@@ -111,8 +111,11 @@ module Data.Comp.Multi.Automata
 
     , (:->:)(..)
     , (:*:)(..)
+    , ffst
+    , fsnd
     ) where
 
+import Data.Kind
 import Data.Comp.Multi.HFunctor
 import Data.Comp.Multi.HTraversable
 import Data.Comp.Multi.Algebra
@@ -121,16 +124,10 @@ import Data.Projection
 import Data.Comp.Multi.Mapping
 import Data.Comp.Multi.Term
 -- import qualified Data.Comp.Multi.DMapping as D
+import Data.Comp.Multi.Ops
 import qualified Data.Comp.Ops as O
 
 -- Higher order product special cases.
-
-data (q :*: c) i = q i :*: c i
-
-hfst :: (a :*: b) i -> a i
-hfst (a  :*: _b) = a
-hsnd :: (a :*: b) i -> b i
-hsnd (_a :*:  b) = b
 
 -- | This function provides access to components of the states from
 -- "below".
@@ -156,7 +153,7 @@ above = pr ?above
 
 type QHom f q g = forall a i . (?below :: a i -> q, ?above :: q) => f a i -> Context g a i
 
-qHomExplicit :: forall f g b q a i . ((?above :: q, ?below :: a i -> q) => (f a i -> Context g a i)) -> q -> (a i -> q) -> f a i -> Context g a i
+qHomExplicit :: forall f g q a i . ((?above :: q, ?below :: a i -> q) => (f a i -> Context g a i)) -> q -> (a i -> q) -> f a i -> Context g a i
 qHomExplicit x ab be = x where ?above = ab; ?below = be
 
 -- | This function turns a stateful homomorphism with a fully
@@ -195,7 +192,7 @@ upAlg trans = hfmap appCxt . trans
 -- | This function runs the given UTT on the given term.
 
 runUpTrans :: (HFunctor f, HFunctor g) => UpTrans f q g -> Term f :-> Term g
-runUpTrans trans = hsnd . runUpTransSt trans
+runUpTrans trans = fsnd . runUpTransSt trans
 
 -- | This function is a variant of 'runUpTrans' that additionally
 -- returns the final state of the run.
@@ -280,14 +277,14 @@ prodUpState sp sq t = K (p, q) where
 
 upTrans :: forall f q g . (HFunctor f, HFunctor g) => UpState f q -> QHom f q g -> UpTrans f q g
 upTrans st f t = (K q :*: c)
-    where K q = st $ hfmap hfst t
-          c = hfmap hsnd $ qHomExplicit f q (unK . hfst) t
+    where K q = st $ hfmap ffst t
+          c = hfmap fsnd $ qHomExplicit f q (unK . ffst) t
 
 -- | This function applies a given stateful term homomorphism with
 -- a state space propagated by the given UTA to a term.
 
 runUpHom :: (HFunctor f, HFunctor g) => UpState f q -> QHom f q g -> Term f :-> Term g
-runUpHom st hom = hsnd . runUpHomSt st hom
+runUpHom st hm = fsnd . runUpHomSt st hm
 
 -- | This is a variant of 'runUpHom' that also returns the final state
 -- of the run.
@@ -368,7 +365,7 @@ runDownTrans tr q t = run t (K q) where
 
 -- | This function runs the given DTT on the given tree.
 
-runDownTrans' :: forall f g h q a i . (HFunctor f, HFunctor g) => DownTrans f q g -> forall i . q -> Cxt h f (K q :->: a) i -> Cxt h g a i
+runDownTrans' :: forall f g h q a i . (HFunctor f, HFunctor g) => DownTrans f q g -> q -> Cxt h f (K q :->: a) i -> Cxt h g a i
 runDownTrans' tr q t = run t (K q) where
     run :: forall j .  Cxt h f (K q :->: a) j -> K q j -> Cxt h g a j
     run (Term t) (K q) = appCxt $ tr q $ hfmap (HFun . run) t
@@ -394,20 +391,20 @@ compSigDownTrans sig trans q = appSigFun sig . trans q
 -- | This function composes a DTT after a function.
 
 compDownTransSig :: DownTrans g q h -> SigFun f g -> DownTrans f q h
-compDownTransSig trans hom q t = trans q (hom t)
+compDownTransSig trans hm q t = trans q (hm t)
 
 
 -- | This function composes a homomorphism after a DTT.
 
 compHomDownTrans :: (HFunctor g, HFunctor h)
               => Hom g h -> DownTrans f q g -> DownTrans f q h
-compHomDownTrans hom trans q = appHom hom . trans q
+compHomDownTrans hm trans q = appHom hm . trans q
 
 -- | This function composes a DTT after a homomorphism.
 
 compDownTransHom :: (HFunctor g, HFunctor h)
               => DownTrans g q h -> Hom f g -> DownTrans f q h
-compDownTransHom trans hom q t = runDownTrans' trans q (hom t)
+compDownTransHom trans hm q t = runDownTrans' trans q (hm t)
 
 
 -- | This type represents transition functions of total, deterministic
@@ -448,11 +445,11 @@ appMap qmap q s = hfmap (qfun q) s'
 -- | This function constructs a DTT from a given stateful term--
 -- homomorphism with the state propagated by the given DTA.
 
-mcurry :: forall q f (a :: * -> *) m i . ((K q :*: f a) i -> K (m q) i) -> q -> f a i -> K (m q) i
+mcurry :: forall q f (a :: Type -> Type) m i . ((K q :*: f a) i -> K (m q) i) -> q -> f a i -> K (m q) i
 mcurry f q t = f (K q :*: t)
 
 downTrans :: (HTraversable f, HFunctor g) => DownState f q -> QHom f q g -> DownTrans f q g
-downTrans st f q s = hfmap hsnd $ qHomExplicit f q (unK . hfst) (appMap (mcurry st q) q s)
+downTrans st f q s = hfmap fsnd $ qHomExplicit f q (unK . ffst) (appMap (mcurry st q) q s)
 
 
 -- | This function applies a given stateful term homomorphism with a
@@ -552,9 +549,9 @@ runQHom up down trans d (Term t) = (u, t'') where
             let d' = lookupNumMap d i (unK m)
                 (u', s') = runQHom up down trans d' s
             in Numbered i (K (u', d') :*: s')
-        m = hExplicit down (u,d) (unK . hfst . unNumbered) t'
-        u = unK $ hExplicit   up   (u,d) (unK . hfst . unNumbered) t'
-        t'' = appCxt $ hfmap (hsnd . unNumbered) $ cxtExplicit trans (u,d) (unK . hfst . unNumbered) t'
+        m = hExplicit down (u,d) (unK . ffst . unNumbered) t'
+        u = unK $ hExplicit   up   (u,d) (unK . ffst . unNumbered) t'
+        t'' = appCxt $ hfmap (fsnd . unNumbered) $ cxtExplicit trans (u,d) (unK . ffst . unNumbered) t'
 
 -- | Lift a stateful term homomorphism over signatures @f@ and @g@ to
 -- a stateful term homomorphism over the same signatures, but extended with

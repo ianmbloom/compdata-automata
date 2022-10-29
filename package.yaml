@@ -40,3 +40,26 @@ ghc-options:
 
 library:
   source-dirs: src
+
+
+executables:
+  example-compiler:
+    main:                Compiler.hs
+    source-dirs:         examples/Examples/Multi/Automata
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - compdata-automata
+
+executables:
+  example-automata:
+    main:                Automata.hs
+    source-dirs:         examples/Examples/Multi
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - compdata-automata

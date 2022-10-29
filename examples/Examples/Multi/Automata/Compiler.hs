@@ -1,12 +1,14 @@
 {-# LANGUAGE TemplateHaskell, FlexibleContexts, MultiParamTypeClasses,
 TypeOperators, FlexibleInstances, UndecidableInstances,
 ScopedTypeVariables, TypeSynonymInstances, GeneralizedNewtypeDeriving,
-OverlappingInstances, ConstraintKinds #-}
+OverlappingInstances, ConstraintKinds, KindSignatures, DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
 
-module Examples.Multi.Automata.Compiler where
+module Automata.Compiler where
 
 import Data.Comp.Multi.Automata
+import Data.Comp.Multi.HTraversable
+import Data.Comp.Multi.HFoldable
 import Data.Comp.Multi.Derive
 import Data.Comp.Multi.Ops
 import Data.Comp.Multi hiding (height)
@@ -21,23 +23,23 @@ import qualified Data.Map as Map
 
 type Var = String
 
-data Val a = Const Int
-  deriving Functor
-data Op a  = Plus a a
-           | Times a a
-  deriving Functor
+data Val (a :: * -> *) i = Const Int
+
+data Op a i = Plus  (a i) (a i)
+            | Times (a i) (a i)
+
 type Core = Op :+: Val
 
-data Let a = Let Var a a
-           | Var Var
-  deriving Functor
+data Let a i = Let Var (a i) (a i)
+             | Var Var
+--   deriving HFunctor
 type CoreLet = Let :+: Core
 
-data Sugar a = Neg a
-             | Minus a a
-  deriving Functor
+data Sugar a i = Neg (a i)
+               | Minus (a i) (a i)
+-- deriving HFunctor
 
-$(derive [makeFoldable, makeTraversable, smartConstructors, makeShowF]
+$(derive [makeHFunctor, makeHFoldable, makeHTraversable, smartConstructors, makeShowHF]
   [''Val, ''Op, ''Let, ''Sugar])
 
 
@@ -47,11 +49,11 @@ class Eval f where
 $(derive [liftSum] [''Eval])
 
 instance Eval Val where
-    evalSt (Const i) = i
+    evalSt (Const i) = K i
 
 instance Eval Op where
-    evalSt (Plus x y) = x + y
-    evalSt (Times x y) = x * y
+    evalSt (Plus  (K x) (K y)) = K $ x + y
+    evalSt (Times (K x) (K y)) = K $ x * y
 
 type Addr = Int
 
@@ -90,10 +92,10 @@ runCode' c = mAcc $ runCode c MState{mRam = Map.empty, mAcc = error "accumulator
 
 
 -- | Defines the height of an expression.
-heightSt :: Foldable f => UpState f Int
-heightSt t = foldl max 0 t + 1
+heightSt :: HFoldable f => UpState f Int
+heightSt t = hfoldl (\(K a) (K b) -> K $ max a b) (K 0) t + (K 1)
 
-tmpAddrSt :: Foldable f => UpState f Int
+tmpAddrSt :: HFoldable f => UpState f Int
 tmpAddrSt = (+1) . heightSt
 
 
@@ -103,24 +105,24 @@ class VarAddrSt f where
   varAddrSt :: DownState f VarAddr
 
 instance (VarAddrSt f, VarAddrSt g) => VarAddrSt (f :+: g) where
-    varAddrSt (q,Inl x) = varAddrSt (q, x)
-    varAddrSt (q,Inr x) = varAddrSt (q, x)
+    varAddrSt (K q :*: Inl x) = varAddrSt (K q :*: x)
+    varAddrSt (K q :*: Inr x) = varAddrSt (K q :*: x)
 
 instance VarAddrSt Let where
-  varAddrSt (d, Let _ _ x) = x `Map.singleton` (d + 2)
-  varAddrSt _ = Map.empty
+  varAddrSt (K d :*: Let _ _ x) = K $ x |-> (d + 2)
+  varAddrSt _ = K empty
 
 instance VarAddrSt f where
-  varAddrSt _ = Map.empty
+  varAddrSt _ = K empty
 
 
 type Bind = Map Var Int
 
 bindSt :: (Let :<: f,VarAddr :< q) => DDownState f q Bind
 bindSt t = case proj t of
-             Just (Let v _ e) -> Map.singleton e q'
+             Just (Let v _ e) -> K $ e |-> q'
                        where q' = Map.insert v (varAddr above) above
-             _ -> Map.empty
+             _ -> K empty
 
 -- | Defines the code that an expression is compiled to. It depends on
 -- an integer state that denotes the height of the current node.
@@ -133,38 +135,38 @@ instance (CodeSt f q, CodeSt g q) => CodeSt (f :+: g) q where
 
 
 instance CodeSt Val q where
-    codeSt (Const i) = [Acc i]
+    codeSt (Const i) = K [Acc i]
 
 instance (Int :< q) => CodeSt Op q where
-    codeSt (Plus x y) = below x ++ [Store i] ++ below y ++ [Add i]
+    codeSt (Plus x y) = K $ below x ++ [Store i] ++ below y ++ [Add i]
         where i = below y
-    codeSt (Times x y) = below x ++ [Store i] ++ below y ++ [Mul i]
+    codeSt (Times x y) = K $ below x ++ [Store i] ++ below y ++ [Mul i]
         where i = below y
 
 instance (VarAddr :< q, Bind :< q) => CodeSt Let q where
-    codeSt (Let _ b e) = below b ++ [Store i] ++ below e
+    codeSt (Let _ b e) = K $ below b ++ [Store i] ++ below e
                     where i = varAddr above
     codeSt (Var v) = case Map.lookup v above of
                        Nothing -> error $ "unbound variable " ++ v
-                       Just i -> [Load i]
+                       Just i -> K [Load i]
 
-compile' :: (CodeSt f (Code,Int), Foldable f, Functor f) => Term f -> Code
-compile' = fst . runDUpState (codeSt `prodDUpState` dUpState tmpAddrSt)
-
-
-exComp' = compile' (iConst 2 `iPlus` iConst 3 :: Term Core)
+compile' :: (CodeSt f (Code,Int), HFoldable f, HFunctor f) => Term f i -> (Code, Int)
+compile' = unK . runDUpState (codeSt `prodDUpState` dUpState tmpAddrSt)
 
 
+exComp' = compile' (iConst 2 `iPlus` iConst 3 :: Term Core i)
 
-compile :: (CodeSt f ((Code,Int),(Bind,VarAddr)), Traversable f, Functor f, Let :<: f, VarAddrSt f)
-           => Term f -> Code
+
+
+compile :: (CodeSt f ((Code,Int),(Bind,VarAddr)), HTraversable f, HFunctor f, Let :<: f, VarAddrSt f)
+           => Term f i -> Code
 compile = fst . runDState
           (codeSt `prodDUpState` dUpState tmpAddrSt)
           (bindSt `prodDDownState` dDownState varAddrSt)
           (Map.empty, VarAddr 1)
 
 
-exComp = compile (iLet "x" (iLet "x" (iConst 5) (iConst 10 `iPlus` iVar "x")) (iConst 2 `iPlus` iVar "x") :: Term CoreLet)
+exComp = compile (iLet "x" (iLet "x" (iConst 5) (iConst 10 `iPlus` iVar "x")) (iConst 2 `iPlus` iVar "x") :: Term CoreLet ())
 
 -- | Defines the set of free variables
 class VarsSt f where
@@ -173,25 +175,25 @@ class VarsSt f where
 $(derive [liftSum] [''VarsSt])
 
 instance VarsSt Val where
-    varsSt _ = Set.empty
+    varsSt _ = K Set.empty
 
 instance VarsSt Op where
-    varsSt (Plus x y) = x `union` y
-    varsSt (Times x y) = x `union` y
+    varsSt (Plus (K x) (K y)) = K $ x `union` y
+    varsSt (Times (K x) (K y)) = K $ x `union` y
 
 instance VarsSt Let where
-    varsSt (Var v) = singleton v
-    varsSt (Let v x y) = (if v `member` y then x else Set.empty) `union` delete v y
+    varsSt (Var v) = K $ singleton v
+    varsSt (Let v (K x) (K y)) = K $ (if v `member` y then x else Set.empty) `union` delete v y
 
 -- | Stateful homomorphism that removes unnecessary let bindings.
-remLetHom :: (Set Var :< q, Let :<: f, Functor f) => QHom f q f
+remLetHom :: (Set Var :< q, Let :<: f, HFunctor f) => QHom f q f
 remLetHom t = case proj t of
                 Just (Let v _ y)
                     | not (v `member` below y) -> Hole y
                 _ -> simpCxt t
 
 -- | Removes unnecessary let bindings.
-remLet :: (Let :<: f, Functor f, VarsSt f) => Term f -> Term f
+remLet :: (Let :<: f, HFunctor f, VarsSt f) => Term f i -> Term f i
 remLet = runUpHom varsSt remLetHom
 
-exLet = remLet (iLet "x" (iConst 3) (iConst 2 `iPlus` iVar "y") :: Term CoreLet)
+exLet = remLet (iLet "x" (iConst 3) (iConst 2 `iPlus` iVar "y") :: Term CoreLet ())
