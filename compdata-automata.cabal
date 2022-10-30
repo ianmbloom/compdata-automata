@@ -24,6 +24,8 @@ source-repository head
 
 library
   exposed-modules:
+      Data.Comp.Automata
+      Data.Comp.MacroAutomata
       Data.Comp.Multi.Automata
   other-modules:
       Paths_compdata_automata
