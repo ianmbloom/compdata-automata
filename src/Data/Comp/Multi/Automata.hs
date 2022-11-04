@@ -307,7 +307,7 @@ type DUpState' f p q = forall a i . (?below :: a i -> p, ?above :: p) => f a i -
 -- | This combinator turns an arbitrary UTA into a GUTA.
 
 dUpState :: forall f p q . HFunctor f => UpState f q -> DUpState f p q
-dUpState f sig = f $ hfmap (error "dUpState not implemented." {-below -}) sig
+dUpState f sig = f $ hfmap (error "dUpState: can't define below." {-below-}) sig
 
 -- | This combinator turns a GUTA with the smallest possible state
 -- space into a UTA.

@@ -107,10 +107,6 @@ duttTransAlg trans = hfmap injectCxt . trans
 {-| This function runs the given DUTT transition function on the given
 term.  -}
 
--- Expected type: (          f (K q :*: a0) i1  -> (K q :*: Cxt Hole g a0) i1   -> f (K q :*: Term g) i0 -> (K q :*: Term g) i0
--- Actual   type: (forall a. f (K q :*: a )    :-> (K q :*: Cxt Hole g a  )   ) -> f (K q :*: Term g)   :-> (K q :*: Term g)
-
-
 runDUTTTrans :: forall f g q . (HFunctor f, HFunctor g)  => DUTTTrans f g q -> Term f :-> (K q :*: Term g)
 runDUTTTrans trans = cata (duttTransAlg trans)
 

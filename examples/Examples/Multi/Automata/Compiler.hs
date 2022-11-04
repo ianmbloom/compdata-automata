@@ -52,8 +52,8 @@ instance Eval Val where
     evalSt (Const i) = K i
 
 instance Eval Op where
-    evalSt (Plus  (K x) (K y)) = K $ x + y
-    evalSt (Times (K x) (K y)) = K $ x * y
+    evalSt (Plus  x y) = x + y
+    evalSt (Times x y) = x * y
 
 type Addr = Int
 
@@ -93,7 +93,7 @@ runCode' c = mAcc $ runCode c MState{mRam = Map.empty, mAcc = error "accumulator
 
 -- | Defines the height of an expression.
 heightSt :: HFoldable f => UpState f Int
-heightSt t = hfoldl (\(K a) (K b) -> K $ max a b) (K 0) t + (K 1)
+heightSt t = hfoldl max 0 t + 1
 
 tmpAddrSt :: HFoldable f => UpState f Int
 tmpAddrSt = (+1) . heightSt
