@@ -70,61 +70,61 @@ class AddrSt f q where
   addrSt :: DDownState f q Addr
 
 instance (AddrSt f q, AddrSt g q) => AddrSt (f :+: g) q where
-    addrSt (Inl x) = addrSt x
-    addrSt (Inr x) = addrSt x
+    addrSt abv bel (Inl x) = addrSt abv bel x
+    addrSt abv bel (Inr x) = addrSt abv bel x
 
 instance (AddrCount :< q, Int :< q) => AddrSt Branch q where
-    addrSt (Branch a b) =
-      let offset = above
+    addrSt abv bel (Branch a b) =
+      let offset = pr abv
       in K $  a |-> offset
-            & b |-> (offset + Addr (below a))
+            & b |-> (offset + Addr (pr $ bel a))
 
 instance (AddrCount :< q, Int :< q) => AddrSt Let q where
-    addrSt (Let _ a b) =
-      let offset = above
+    addrSt abv bel (Let _ a b) =
+      let offset = pr abv
       in K $
            a |-> offset
-         & b |-> (offset + Addr (below a))
-    addrSt _ = K empty
+         & b |-> (offset + Addr (pr $ bel a))
+    addrSt abv bel _ = K empty
 
 instance {-# OVERLAPPABLE #-} AddrSt f q where
-    addrSt _ = K empty
+    addrSt abv bel _ = K empty
 
 
 class StoreLeaf f q where
   storeLeaf :: DUpState f q NameEnv
 
 instance (Addr :< q) => StoreLeaf Leaf q where
-  storeLeaf t =
+  storeLeaf abv _bel t =
     case t of
-      Leaf name -> K $ name `Map.singleton` above
+      Leaf name -> K $ name `Map.singleton` pr abv
       _ -> K $ Map.empty
 
 instance StoreLeaf Branch q where
-  storeLeaf t =
+  storeLeaf abv bel t =
     case t of
-      Branch a b -> K $ below a `Map.union` below b
+      Branch a b -> K $ (pr $ bel a) `Map.union` (pr $ bel b)
 
 instance {-# OVERLAPPABLE #-} StoreLeaf f q where
-  storeLeaf t = K $ Map.empty
+  storeLeaf abv _bel t = K $ Map.empty
 
 class RewriteLeaf f q g where
   rewriteLeaf :: QHom f q g
 
 instance (HFunctor g, RewriteLeaf f q g, RewriteLeaf z q g) => RewriteLeaf (f :+: z) q g where
-  rewriteLeaf t =
+  rewriteLeaf abv bel t =
     case t of
-      Inl x -> rewriteLeaf x
-      Inr x -> rewriteLeaf x
+      Inl x -> rewriteLeaf abv bel x
+      Inr x -> rewriteLeaf abv bel x
 
 instance (HFunctor g, Addr :< q, Pointer :<: g) => RewriteLeaf Leaf q g where
-  rewriteLeaf t =
+  rewriteLeaf abv _bel t =
     case t of
-      Leaf name -> liftCxt $ Pointer above
+      Leaf name -> liftCxt $ Pointer (pr abv)
       EmptyLeaf -> liftCxt   Null
 
 instance (HFunctor g, Branch :<: g) => RewriteLeaf Branch q g where
-  rewriteLeaf = liftCxt
+  rewriteLeaf _abv _bel = liftCxt
 
 class RestoreLeaf f g where
   restoreLeaf :: Map Addr Name -> Hom f g

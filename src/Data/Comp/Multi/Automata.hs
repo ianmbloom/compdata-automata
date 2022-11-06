@@ -38,8 +38,8 @@ module Data.Comp.Multi.Automata
     (
     -- * Stateful Term Homomorphisms
       QHom
-    , below
-    , above
+    --, below
+    --, above
     , pureHom
     -- ** Bottom-Up State Propagation
     , upTrans
@@ -132,14 +132,14 @@ import qualified Data.Comp.Ops as O
 -- | This function provides access to components of the states from
 -- "below".
 
-below :: forall p q a i . (?below :: a i -> q, p :< q) => a i -> p
-below = pr . ?below
+-- below :: forall p q a i . (?below :: a i -> q, p :< q) => a i -> p
+-- below = pr . ?below
 
 -- | This function provides access to components of the state from
 -- "above"
 
-above :: (?above :: q, p :< q) => p
-above = pr ?above
+-- above :: (?above :: q, p :< q) => p
+-- above = pr ?above
 
 -- | Turns the explicit parameters @?above@ and @?below@ into explicit
 -- ones.
@@ -147,25 +147,23 @@ above = pr ?above
 -- explicit :: forall b q a i . ((?above :: q, ?below :: a i -> q) => b i) -> q -> (a i -> q) -> b i
 -- explicit x ab be = x where ?above = ab; ?below = be
 
-hexplicit :: ((?above::q, ?below :: a i -> q) => (f a i -> k i))
-          -> q
-          -> (a i -> q)
-          -> f a i
-          -> k i
-hexplicit x ab be = x where ?above = ab; ?below = be
+-- hexplicit :: ((?above::q) => ((forall i . a i -> q) -> f a i -> k i))
+--           -> q
+--           -> (forall i . a i -> q)
+--           -> f a i
+--           -> k i
+-- hexplicit x ab = x where ?above = ab
 
 -- | This type represents stateful term homomorphisms. Stateful term
 -- homomorphisms have access to a state that is provided (separately)
 -- by a bottom-up or top-down state transformation function (or both).
 
-type QHom f q g = forall a i . (?below :: a i -> q, ?above :: q) => f a i -> Context g a i
+type QHom f q g = forall k . q -> (forall i . k i -> q) -> f k :-> Context g k
 
 -- | This function turns a stateful homomorphism with a fully
 -- polymorphic state type into a (stateless) homomorphism.
 pureHom :: (forall q . QHom f q g) -> Hom f g
-pureHom phom t = let ?above = undefined
-                     ?below = const undefined
-                 in phom t
+pureHom phom t = phom undefined (const undefined) t
 
 -- | This type represents transition functions of total, deterministic
 -- bottom-up tree transducers (UTTs).
@@ -282,7 +280,7 @@ prodUpState sp sq t = K (p, q) where
 upTrans :: forall f q g . (HFunctor f, HFunctor g) => UpState f q -> QHom f q g -> UpTrans f q g
 upTrans st f t = (K q :*: c)
     where K q = st $ hfmap ffst t
-          c = hfmap fsnd $ hexplicit f q (unK . ffst) t
+          c = hfmap fsnd $ {-hexplicit-} f q (unK . ffst) t
 
 -- | This function applies a given stateful term homomorphism with
 -- a state space propagated by the given UTA to a term.
@@ -301,19 +299,20 @@ runUpHomSt alg h = runUpTransSt (upTrans alg h)
 -- deterministic bottom-up tree acceptors (GUTAs) which have access
 -- to an extended state space.
 
+-- type  UpState f q = forall i . f (K q) i -> K q i
 type DUpState f p q = (q :< p) => DUpState' f p q
-type DUpState' f p q = forall a i . (?below :: a i -> p, ?above :: p) => f a i -> K q i
+type DUpState' f p q = forall k . p -> (forall i . k i -> p) -> f k :-> K q
 
 -- | This combinator turns an arbitrary UTA into a GUTA.
 
 dUpState :: forall f p q . HFunctor f => UpState f q -> DUpState f p q
-dUpState f sig = f $ hfmap (error "dUpState: can't define below." {-below-}) sig
+dUpState f _abv bel sig = f $ hfmap (K . pr . bel) sig
 
 -- | This combinator turns a GUTA with the smallest possible state
 -- space into a UTA.
 
 upState :: forall f q . DUpState f q q -> UpState f q
-upState f s = K res where res = unK $ hexplicit f res unK s
+upState f s = K res where res = unK $ f res unK s
 
 -- | This combinator runs a GUTA on a term.
 
@@ -324,7 +323,7 @@ runDUpState up t = runUpState (upState up) t
 
 prodDUpState :: (p :< c, q :< c)
              => DUpState f c p -> DUpState f c q -> DUpState f c (p, q)
-prodDUpState sp sq t = K (unK $ sp t, unK $ sq t)
+prodDUpState sp sq abv bel t = K (unK $ sp abv bel t, unK $ sq abv bel t)
 
 (|*|) :: (p :< c, q :< c)
              => DUpState f c p -> DUpState f c q -> DUpState f c (p, q)
@@ -410,7 +409,7 @@ compDownTransHom trans hm q t = runDownTrans' trans q (hm t)
 -- | This type represents transition functions of total, deterministic
 -- top-down tree acceptors (DTAs).
 
-type DownState f q = forall m a. (Functor m, Mapping m a) => forall i . (K q :*: f a) i -> K (m q) i
+type DownState f q = forall m k. (Functor m, Mapping m k) => forall i . (K q :*: f k) i -> K (m q) i
 
 -- | Changes the state space of the DTA using the given isomorphism.
 
@@ -449,7 +448,7 @@ mcurry :: forall q f (a :: Type -> Type) m i . ((K q :*: f a) i -> K (m q) i) ->
 mcurry f q t = f (K q :*: t)
 
 downTrans :: (HTraversable f, HFunctor g) => DownState f q -> QHom f q g -> DownTrans f q g
-downTrans st f q s = hfmap fsnd $ hexplicit f q (unK . ffst) (appMap (mcurry st q) q s)
+downTrans st f q s = hfmap fsnd $ f q (unK . ffst) (appMap (mcurry st q) q s)
 
 
 -- | This function applies a given stateful term homomorphism with a
@@ -465,21 +464,21 @@ runDownHom st h = runDownTrans (downTrans st h)
 -- to an extended state space.
 type DDownState f p q = (q :< p) => DDownState' f p q
 
-type DDownState' f p q = forall m k i . (Functor m, Mapping m k, ?below :: k i -> p, ?above :: p)
-                                => f k i -> K (m q) i
+type DDownState' f p q = forall m k . (Functor m, Mapping m k)
+                                => p -> (forall i . k i -> p) -> f k :-> K (m q)
 
 -- | This combinator turns an arbitrary DTA into a GDTA.
 
 dDownState :: DownState f q -> DDownState f p q
-dDownState f t = f (K above :*: t)
+dDownState f abv _bel t = f (K (pr abv) :*: t)
 
 -- | This combinator turns a GDTA with the smallest possible state
 -- space into a DTA.
 
-downState :: DDownState f q q -> DownState f q
+downState :: forall f q . DDownState f q q -> DownState f q
 downState f (K q :*: s) = K res
-    where (K res) = hexplicit f q bel s
-          bel k = findWithDefault q k res
+    where (K res) = f q bel s
+          bel k = error "downState not implemented." -- findWithDefault q k res
 
 
 -- | This combinator constructs the product of two dependant top-down
@@ -487,7 +486,7 @@ downState f (K q :*: s) = K res
 
 prodDDownState :: (p :< c, q :< c)
                => DDownState f c p -> DDownState f c q -> DDownState f c (p, q)
-prodDDownState sp sq t = K $ prodMap above above (unK $ sp t) (unK $ sq t)
+prodDDownState sp sq abv bel t = K $ prodMap (pr abv) (pr abv) (unK $ sp abv bel t) (unK $ sq abv bel t)
 
 -- | This is a synonym for 'prodDDownState'.
 
@@ -513,8 +512,8 @@ runDState up down d (Term t) = u where
             let d' :: d
                 d' = lookupNumMap d i m
             in Numbered i (K (runDState up down d' s, d'))
-        m = unK $ hexplicit down (u, d) (unK . unNumbered) t'
-        u = unK $ hexplicit up   (u, d) (unK . unNumbered) t'
+        m = unK $ down (u, d) (unK . unNumbered) t'
+        u = unK $ up   (u, d) (unK . unNumbered) t'
 
 -- | This combinator runs a stateful term homomorphisms with a state
 -- space produced both on a bottom-up and a top-down state
@@ -531,16 +530,16 @@ runQHom up down trans d (Term t) = (u, t'') where
             let d' = lookupNumMap d i (unK m)
                 (u', s') = runQHom up down trans d' s
             in Numbered i (K (u', d') :*: s')
-        m = hexplicit down (u,d) (unK . ffst . unNumbered) t'
-        u = unK $ hexplicit   up   (u,d) (unK . ffst . unNumbered) t'
-        t'' = appCxt $ hfmap (fsnd . unNumbered) $ hexplicit trans (u,d) (unK . ffst . unNumbered) t'
+        m = down (u,d) (unK . ffst . unNumbered) t'
+        u = unK $ up   (u,d) (unK . ffst . unNumbered) t'
+        t'' = appCxt $ hfmap (fsnd . unNumbered) $ trans (u,d) (unK . ffst . unNumbered) t'
 
 -- | Lift a stateful term homomorphism over signatures @f@ and @g@ to
 -- a stateful term homomorphism over the same signatures, but extended with
 -- annotations.
 propAnnQ :: (DistAnn f p f', DistAnn g p g', HFunctor g)
         => QHom f q g -> QHom f' q g'
-propAnnQ hm f' = ann p (hm f)
+propAnnQ hm abv bel f' = ann p (hm abv bel f)
     where ((O.:&:) f p) = projectA f'
 
 -- | Lift a bottom-up tree transducer over signatures @f@ and @g@ to a
