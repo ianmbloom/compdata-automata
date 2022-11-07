@@ -3,6 +3,7 @@
   , MultiParamTypeClasses
   , RankNTypes
   , TypeOperators
+  , TypeApplications
   , FlexibleInstances
   , UndecidableInstances
   , ScopedTypeVariables
@@ -11,10 +12,10 @@
   , IncoherentInstances
   , ConstraintKinds
   , KindSignatures
-  , DeriveAnyClass
 #-}
 module Main where
 
+import Control.Monad.State
 import Data.Comp.Multi.Automata
 import Data.Comp.Multi.HTraversable
 import Data.Comp.Multi.HFoldable
@@ -40,12 +41,15 @@ newtype Addr = Addr {unAddr :: Int} deriving (Eq, Ord, Show, Num)
 
 data Branch a i = Branch (a i) (a i)
 
-data Leaf (a :: * -> *) i = Leaf Name | EmptyLeaf
+data Leaf (a :: * -> *) i = Leaf Name
 
-data Pointer (a :: * -> *) i = Pointer Addr | Null
+data Null (a :: * -> *) i = Null
 
-type Core   = Branch :+: Leaf
-type Stored = Branch :+: Pointer
+data Pointer (a :: * -> *) i = Pointer Addr
+
+type Core   = Branch :+: Leaf :+: Null
+type CoreAnn = Branch :+: (Leaf :&: Addr) :+: Null
+type Stored = Branch :+: Pointer :+: Null
 
 data Let a i = Let Var (a i) (a i)
              | Var Var
@@ -54,14 +58,13 @@ type CoreLet   = Let :+: Core
 type StoredLet = Let :+: Core
 
 $(derive [makeHFunctor, makeHFoldable, makeHTraversable, smartConstructors, makeShowHF]
-  [''Branch, ''Leaf, ''Pointer, ''Let])
+  [''Branch, ''Leaf, ''Pointer, ''Null, ''Let])
 
 class HFoldable f => SizeSt f where
   sizeSt :: UpState f Int
 
 instance SizeSt Leaf where
   sizeSt (Leaf s) = K 1
-  sizeSt EmptyLeaf = K 0
 
 instance HFoldable f => SizeSt f where
   sizeSt t = hfoldl (\(K a) (K b) -> K $ a + b) (K 0) t
@@ -91,40 +94,67 @@ instance {-# OVERLAPPABLE #-} AddrSt f q where
     addrSt abv bel _ = K empty
 
 
-class StoreLeaf f q where
-  storeLeaf :: DUpState f q NameEnv
 
-instance (Addr :< q) => StoreLeaf Leaf q where
-  storeLeaf abv _bel t =
+
+
+class NumLeaf f g where
+  numLeaf :: SigFunM (State Addr) f g
+
+--type NatM m f g = forall i. f i -> m (g i)
+
+instance ((Leaf :&: Addr) :<: g) => NumLeaf Leaf g where
+  numLeaf (Leaf name) =
+    do i <- get
+       put (i+1)
+       return $ inj (Leaf name :&: i)
+
+instance (NumLeaf f g, NumLeaf z g) => NumLeaf (f :+: z) g where
+  numLeaf t =
     case t of
-      Leaf name -> K $ name `Map.singleton` pr abv
-      _ -> K $ Map.empty
+      Inl x -> numLeaf x
+      Inr x -> numLeaf x
 
-instance StoreLeaf Branch q where
-  storeLeaf abv bel t =
+instance {-# OVERLAPPABLE #-} (f :<: g) => NumLeaf f g where
+  numLeaf = return . inj
+
+class StoreLeaf f where
+  storeLeaf :: Alg f (K NameEnv)
+
+instance (StoreLeaf f, StoreLeaf g) => StoreLeaf (f :+: g) where
+  storeLeaf t =
     case t of
-      Branch a b -> K $ (pr $ bel a) `Map.union` (pr $ bel b)
+      Inl x -> storeLeaf x
+      Inr x -> storeLeaf x
 
-instance {-# OVERLAPPABLE #-} StoreLeaf f q where
-  storeLeaf abv _bel t = K $ Map.empty
-
-class RewriteLeaf f q g where
-  rewriteLeaf :: QHom f q g
-
-instance (HFunctor g, RewriteLeaf f q g, RewriteLeaf z q g) => RewriteLeaf (f :+: z) q g where
-  rewriteLeaf abv bel t =
+instance StoreLeaf (Leaf :&: Addr) where
+  storeLeaf t =
     case t of
-      Inl x -> rewriteLeaf abv bel x
-      Inr x -> rewriteLeaf abv bel x
+      (Leaf name :&: addr) -> K $ name `Map.singleton` addr
 
-instance (HFunctor g, Addr :< q, Pointer :<: g) => RewriteLeaf Leaf q g where
-  rewriteLeaf abv _bel t =
+instance StoreLeaf Branch where
+  storeLeaf t =
     case t of
-      Leaf name -> liftCxt $ Pointer (pr abv)
-      EmptyLeaf -> liftCxt   Null
+      Branch (K a) (K b) -> K $ a `Map.union` b
 
-instance (HFunctor g, Branch :<: g) => RewriteLeaf Branch q g where
-  rewriteLeaf _abv _bel = liftCxt
+instance {-# OVERLAPPABLE #-} StoreLeaf f where
+  storeLeaf _ = K $ Map.empty
+
+class RewriteLeaf f g where
+  rewriteLeaf :: Hom f g
+
+instance (HFunctor g, RewriteLeaf f g, RewriteLeaf z g) => RewriteLeaf (f :+: z) g where
+  rewriteLeaf t =
+    case t of
+      Inl x -> rewriteLeaf x
+      Inr x -> rewriteLeaf x
+
+instance (HFunctor g, Pointer :<: g) => RewriteLeaf (Leaf :&: Addr) g where
+  rewriteLeaf t =
+    case t of
+      (Leaf name :&: addr) -> liftCxt $ Pointer addr
+
+instance (HFunctor g, f :<: g) => RewriteLeaf f g where
+  rewriteLeaf = liftCxt
 
 class RestoreLeaf f g where
   restoreLeaf :: Map Addr Name -> Hom f g
@@ -133,26 +163,40 @@ instance (Leaf :<: g) => RestoreLeaf Pointer g where
   restoreLeaf m t =
     case t of
       Pointer i -> inject (Leaf (m ! i))
-      Null -> inject EmptyLeaf
+
+instance (RestoreLeaf f g, RestoreLeaf z g) => RestoreLeaf (f :+: z) g where
+  restoreLeaf m t =
+    case t of
+      Inl x -> restoreLeaf m x
+      Inr x -> restoreLeaf m x
 
 instance {-# OVERLAPPABLE #-} (HFunctor g, f :<: g) => RestoreLeaf f g where
   restoreLeaf m = liftCxt
 
-store :: ( Leaf :<: f
-         , Pointer :<: g
-         , HTraversable f
-         , HFunctor g
-         , RewriteLeaf f ((Int, NameEnv), Addr) g
-         , StoreLeaf f ((Int, NameEnv), Addr) )
-      => Term f i -> ((Int,NameEnv), Term g i)
-store = runQHom (dUpState sizeSt `prodDUpState` storeLeaf) (addrSt) rewriteLeaf (Addr 0)
+store :: forall i .
+         (
+         )
+      => Term Core i -> (NameEnv, Term CoreAnn i, Term Stored i)
+store term =
+  let (annTerm :: Term CoreAnn i) = evalState (appSigFunM (numLeaf) term) (Addr 0)
+      K leafMap = cata storeLeaf annTerm
+      rewrite = appHom (rewriteLeaf) annTerm
+  in  (leafMap, annTerm, rewrite)
+  -- runQHom (dUpState sizeSt `prodDUpState` storeLeaf) addrSt rewriteLeaf (Addr 0)
+
 
 exTree :: Term Core ()
-exTree = iBranch (iBranch iEmptyLeaf    (iLeaf "bird"))
+exTree = iBranch (iBranch iNull    (iLeaf "bird"))
                  (iBranch (iLeaf "dog") (iLeaf "cat" ))
+
+invertBijection :: (Ord k, Ord v) => Map k v -> Map v k
+invertBijection = Map.foldrWithKey (flip Map.insert) Map.empty
 
 main :: IO ()
 main = do
-  let (i, term) = store exTree :: ((Int, NameEnv), Term Stored ())
+  let (mapping, annTerm, term) = store exTree :: (NameEnv, Term CoreAnn (), Term Stored ())
+  putStrLn . show $ annTerm
   putStrLn . show $ term
-  putStrLn . show $ i
+  putStrLn . show $ mapping
+  let (restored :: Term Core ()) = appHom (restoreLeaf (invertBijection mapping)) term
+  putStrLn . show $ restored

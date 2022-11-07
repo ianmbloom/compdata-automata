@@ -61,6 +61,7 @@ executables:
         - -with-rtsopts=-N
         dependencies:
         - compdata-automata
+        - mtl
 #   example-automata:
 #     main:                Automata.hs
 #     source-dirs:         examples/Examples/Multi

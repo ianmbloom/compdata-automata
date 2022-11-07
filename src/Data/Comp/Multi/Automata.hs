@@ -530,7 +530,7 @@ runQHom up down trans d (Term t) = (u, t'') where
             let d' = lookupNumMap d i (unK m)
                 (u', s') = runQHom up down trans d' s
             in Numbered i (K (u', d') :*: s')
-        m = down (u,d) (unK . ffst . unNumbered) t'
+        m =       down (u,d) (unK . ffst . unNumbered) t'
         u = unK $ up   (u,d) (unK . ffst . unNumbered) t'
         t'' = appCxt $ hfmap (fsnd . unNumbered) $ trans (u,d) (unK . ffst . unNumbered) t'
 
