@@ -10,9 +10,12 @@
   , TypeSynonymInstances
   , GeneralizedNewtypeDeriving
   , IncoherentInstances
+  , MonoLocalBinds
   , ConstraintKinds
   , KindSignatures
-#-}
+  #-}
+
+{-#  OPTIONS_GHC -ddump-splices #-}
 module Main where
 
 import Control.Monad.State
@@ -30,11 +33,14 @@ import Data.Set (Set, union, singleton, delete, member)
 import qualified Data.Set as Set
 
 import Data.Map (Map, (!))
-import qualified Data.Map as Map
+import qualified Data.Map as M
+
+import Reduce
+
+import Debug.Trace
 
 type Name = String
 type NameEnv = Map Name Addr
-type Var = String
 
 newtype AddrCount = AddrCount {unAddrCount :: Int} deriving (Eq, Ord, Show, Num)
 newtype Addr = Addr {unAddr :: Int} deriving (Eq, Ord, Show, Num)
@@ -51,14 +57,12 @@ type Core   = Branch :+: Leaf :+: Null
 type CoreAnn = Branch :+: (Leaf :&: Addr) :+: Null
 type Stored = Branch :+: Pointer :+: Null
 
-data Let a i = Let Var (a i) (a i)
-             | Var Var
 
 type CoreLet   = Let :+: Core
 type StoredLet = Let :+: Core
 
 $(derive [makeHFunctor, makeHFoldable, makeHTraversable, smartConstructors, makeShowHF]
-  [''Branch, ''Leaf, ''Pointer, ''Null, ''Let])
+  [''Branch, ''Leaf, ''Pointer, ''Null])
 
 class HFoldable f => SizeSt f where
   sizeSt :: UpState f Int
@@ -93,10 +97,6 @@ instance (AddrCount :< q, Int :< q) => AddrSt Let q where
 instance {-# OVERLAPPABLE #-} AddrSt f q where
     addrSt abv bel _ = K empty
 
-
-
-
-
 class NumLeaf f g where
   numLeaf :: SigFunM (State Addr) f g
 
@@ -129,15 +129,15 @@ instance (StoreLeaf f, StoreLeaf g) => StoreLeaf (f :+: g) where
 instance StoreLeaf (Leaf :&: Addr) where
   storeLeaf t =
     case t of
-      (Leaf name :&: addr) -> K $ name `Map.singleton` addr
+      (Leaf name :&: addr) -> K $ name `M.singleton` addr
 
 instance StoreLeaf Branch where
   storeLeaf t =
     case t of
-      Branch (K a) (K b) -> K $ a `Map.union` b
+      Branch (K a) (K b) -> K $ a `M.union` b
 
 instance {-# OVERLAPPABLE #-} StoreLeaf f where
-  storeLeaf _ = K $ Map.empty
+  storeLeaf _ = K $ M.empty
 
 class RewriteLeaf f g where
   rewriteLeaf :: Hom f g
@@ -184,19 +184,45 @@ store term =
   in  (leafMap, annTerm, rewrite)
   -- runQHom (dUpState sizeSt `prodDUpState` storeLeaf) addrSt rewriteLeaf (Addr 0)
 
+-----------------------------------------------------------------
+
+type CoreLetTouched v = (Let :&: (Touched, Maybe v)) :+: Core
+
+instance {-# OVERLAPPING #-} CanEval Leaf Name where
+  upEval (Leaf name) = K $ Just name
+
+instance {-# OVERLAPPING #-} CanEval Branch Name where
+  upEval (Branch (K a) (K b)) = case (a,b) of
+    (Just a',Just b') -> K $ Just $ a' ++ b'
+    _ -> K Nothing
+
+-----------------------------------------------------------------
 
 exTree :: Term Core ()
 exTree = iBranch (iBranch iNull    (iLeaf "bird"))
                  (iBranch (iLeaf "dog") (iLeaf "cat" ))
 
+exLetTree0 :: Term CoreLet ()
+exLetTree0 = iLet "0" (iLeaf "dog") (iVar "0")
+
+exLetTree1 :: Term CoreLet ()
+exLetTree1 = iLet "0" (iLeaf "dog") (iLet "1" (iLeaf "cat") (iBranch (iVar "0") (iVar "1")))
+
+exLetTree2 :: Term CoreLet ()
+exLetTree2 = iLet "0" (iBranch (iLet "2" (iLeaf "dog") (iVar "2")) (iLeaf "bird"))
+                      (iLet "1" (iLeaf "cat") (iBranch (iVar "0") (iVar "1")))
+
 invertBijection :: (Ord k, Ord v) => Map k v -> Map v k
-invertBijection = Map.foldrWithKey (flip Map.insert) Map.empty
+invertBijection = M.foldrWithKey (flip M.insert) M.empty
 
 main :: IO ()
 main = do
-  let (mapping, annTerm, term) = store exTree :: (NameEnv, Term CoreAnn (), Term Stored ())
-  putStrLn . show $ annTerm
-  putStrLn . show $ term
-  putStrLn . show $ mapping
-  let (restored :: Term Core ()) = appHom (restoreLeaf (invertBijection mapping)) term
-  putStrLn . show $ restored
+  -- let (mapping, annTerm, term) = store exTree :: (NameEnv, Term CoreAnn (), Term Stored ())
+  -- putStrLn . show $ annTerm
+  -- putStrLn . show $ term
+  -- putStrLn . show $ mapping
+  -- let (restored :: Term Core ()) = appHom (restoreLeaf (invertBijection mapping)) term
+  -- putStrLn . show $ restored
+
+  let redTerm = reduce (P :: Proxy Name) (P :: Proxy (CoreLetTouched Name)) exLetTree2
+  putStrLn . show $ redTerm

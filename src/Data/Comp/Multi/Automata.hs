@@ -214,7 +214,7 @@ runUpTrans' trans = run where
 -- | This function composes two UTTs. (see TATA, Theorem 6.4.5)
 
 compUpTrans :: (HFunctor f, HFunctor g, HFunctor h)
-               => UpTrans g p h -> UpTrans f q g -> UpTrans f (q, p) h
+            => UpTrans g p h -> UpTrans f q g -> UpTrans f (q, p) h
 compUpTrans t2 t1 x = (K (q1, q2) :*: c2) where
     (K q1 :*: c1) = t1 $ hfmap (\(K (qa, qb) :*: a) -> (K qa :*: (K qb :*: a))) x
     (K q2 :*: c2) = runUpTrans' t2 c1
@@ -478,7 +478,7 @@ dDownState f abv _bel t = f (K (pr abv) :*: t)
 downState :: forall f q . DDownState f q q -> DownState f q
 downState f (K q :*: s) = K res
     where (K res) = f q bel s
-          bel k = error "downState not implemented." -- findWithDefault q k res
+          bel _k = error "downState not implemented." -- findWithDefault q k res
 
 
 -- | This combinator constructs the product of two dependant top-down

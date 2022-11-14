@@ -55,6 +55,8 @@ executables:
     example-rewrite:
         main:                Main.hs
         source-dirs:         examples/Examples/Multi/Automata/Rewrite
+        other-modules:
+        - Reduce
         ghc-options:
         - -threaded
         - -rtsopts
