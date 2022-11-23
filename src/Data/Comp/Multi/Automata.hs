@@ -285,7 +285,7 @@ upTrans st f t = (K q :*: c)
 -- | This function applies a given stateful term homomorphism with
 -- a state space propagated by the given UTA to a term.
 
-runUpHom :: (HFunctor f, HFunctor g) => UpState f q -> QHom f q g -> Term f :-> Term g
+runUpHom :: forall f q g . (HFunctor f, HFunctor g) => UpState f q -> QHom f q g -> Term f :-> Term g
 runUpHom st hm = fsnd . runUpHomSt st hm
 
 -- | This is a variant of 'runUpHom' that also returns the final state
