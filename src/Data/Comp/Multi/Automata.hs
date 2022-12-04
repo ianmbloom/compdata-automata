@@ -69,6 +69,7 @@ module Data.Comp.Multi.Automata
     , prodUpState
     -- ** Modular State
     , DUpState
+    , DUpState'
     , dUpState
     , upState
     , runDUpState
